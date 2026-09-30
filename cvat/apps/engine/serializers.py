@@ -4388,6 +4388,23 @@ class CloudStorageReadSerializer(serializers.ModelSerializer):
             request_only=True,
         ),
         OpenApiExample(
+            "Create Amazon S3 cloud storage using the EC2 instance role (OHZ)",
+            description=(
+                "No keys are stored: boto3 resolves the host's instance role from "
+                "IMDS at call time. Use this on wardan-dev, where static AWS "
+                "access keys are forbidden (s3.tf D-A). Requires the instance "
+                "role to hold s3:ListBucket + s3:GetObject on the bucket."
+            ),
+            value={
+                "provider_type": models.CloudProviderChoice.AMAZON_S3,
+                "resource": "wardan-dev-ai-datasets",
+                "display_name": "AI datasets",
+                "credentials_type": models.CredentialsTypeChoice.INSTANCE_ROLE,
+                "specific_attributes": "region=us-east-1",
+            },
+            request_only=True,
+        ),
+        OpenApiExample(
             "Create Azure cloud storage",
             value={
                 "provider_type": models.CloudProviderChoice.AZURE_BLOB_STORAGE,

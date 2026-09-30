@@ -276,6 +276,13 @@ class CredentialsTypeChoice(str, Enum):
     KEY_FILE_PATH = "KEY_FILE_PATH"
     ANONYMOUS_ACCESS = "ANONYMOUS_ACCESS"
     CONNECTION_STRING = "CONNECTION_STRING"
+    # OHZ PATCH (wardan-dev): authenticate with the host's own AWS identity —
+    # the EC2 instance role — instead of stored keys. Upstream offers only
+    # static keys or fully-unsigned anonymous access, which forces an IAM user
+    # on any private bucket. This account forbids static access keys
+    # (terraform/environments/wardan-dev/s3.tf D-A), so without this there is
+    # no way to express "read this bucket as the box's own role".
+    INSTANCE_ROLE = "INSTANCE_ROLE"
 
     @classmethod
     def choices(cls):

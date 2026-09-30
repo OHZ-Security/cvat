@@ -1271,6 +1271,8 @@ class Credentials:
                 "" if not self.account_name else self.account_name
             ),
             CredentialsTypeChoice.CONNECTION_STRING: self.connection_string,
+            # OHZ PATCH: nothing is stored — the identity lives on the instance.
+            CredentialsTypeChoice.INSTANCE_ROLE: "",
         }
         return converted_credentials[self.credentials_type]
 
@@ -1290,6 +1292,10 @@ class Credentials:
             instance.key_file_path = value
         elif instance.credentials_type == CredentialsTypeChoice.CONNECTION_STRING:
             instance.connection_string = value
+        elif instance.credentials_type == CredentialsTypeChoice.INSTANCE_ROLE:
+            # OHZ PATCH: no stored secret to rehydrate; boto3 resolves the
+            # instance role from IMDS at call time.
+            pass
         else:
             raise NotImplementedError(
                 "Found {} not supported credentials type".format(instance.credentials_type)
@@ -1303,7 +1309,11 @@ class Credentials:
 
     def mapping_with_new_values(self, credentials):
         self.credentials_type = credentials.get("credentials_type", self.credentials_type)
-        if self.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS:
+        if self.credentials_type == CredentialsTypeChoice.INSTANCE_ROLE:
+            # OHZ PATCH: clear every stored field — the point is that no secret
+            # is held anywhere in CVAT for this storage.
+            self.reset(exclusion=set())
+        elif self.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS:
             self.reset(exclusion={"account_name"})
             self.account_name = credentials.get("account_name", self.account_name)
         elif self.credentials_type == CredentialsTypeChoice.KEY_SECRET_KEY_PAIR:
