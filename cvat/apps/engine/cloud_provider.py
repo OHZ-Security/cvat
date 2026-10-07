@@ -585,8 +585,7 @@ def get_cloud_storage_client(
             prefix=specific_attributes.get("prefix"),
             is_trusted=is_trusted,
             # OHZ PATCH: same expression the GCS branch below already uses.
-            anonymous_access=credentials.credentials_type
-            == CredentialsTypeChoice.ANONYMOUS_ACCESS,
+            anonymous_access=credentials.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS,
         )
     elif cloud_provider == CloudProviderChoice.AZURE_BLOB_STORAGE:
         instance = AzureBlobCloudStorageClient(
