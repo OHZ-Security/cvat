@@ -501,6 +501,7 @@ paths:
           - KEY_FILE_PATH
           - ANONYMOUS_ACCESS
           - CONNECTION_STRING
+          - INSTANCE_ROLE
       - name: filter
         required: false
         in: query
@@ -665,6 +666,19 @@ paths:
                   manifests:
                   - manifest.jsonl
                 summary: Create Amazon S3 cloud storage without credentials
+              CreateAmazonS3CloudStorageUsingTheEC2InstanceRole(OHZ):
+                value:
+                  provider_type: AWS_S3_BUCKET
+                  resource: wardan-dev-ai-datasets
+                  display_name: AI datasets
+                  credentials_type: INSTANCE_ROLE
+                  specific_attributes: region=us-east-1
+                summary: Create Amazon S3 cloud storage using the EC2 instance role
+                  (OHZ)
+                description: 'No keys are stored: boto3 resolves the host''s instance
+                  role from IMDS at call time. Use this on wardan-dev, where static
+                  AWS access keys are forbidden (s3.tf D-A). Requires the instance
+                  role to hold s3:ListBucket + s3:GetObject on the bucket.'
               CreateAzureCloudStorage:
                 value:
                   provider_type: AZURE_CONTAINER
@@ -771,6 +785,19 @@ paths:
                   manifests:
                   - manifest.jsonl
                 summary: Create Amazon S3 cloud storage without credentials
+              CreateAmazonS3CloudStorageUsingTheEC2InstanceRole(OHZ):
+                value:
+                  provider_type: AWS_S3_BUCKET
+                  resource: wardan-dev-ai-datasets
+                  display_name: AI datasets
+                  credentials_type: INSTANCE_ROLE
+                  specific_attributes: region=us-east-1
+                summary: Create Amazon S3 cloud storage using the EC2 instance role
+                  (OHZ)
+                description: 'No keys are stored: boto3 resolves the host''s instance
+                  role from IMDS at call time. Use this on wardan-dev, where static
+                  AWS access keys are forbidden (s3.tf D-A). Requires the instance
+                  role to hold s3:ListBucket + s3:GetObject on the bucket.'
               CreateAzureCloudStorage:
                 value:
                   provider_type: AZURE_CONTAINER
@@ -8653,6 +8680,7 @@ components:
       - KEY_FILE_PATH
       - ANONYMOUS_ACCESS
       - CONNECTION_STRING
+      - INSTANCE_ROLE
       type: string
       description: |-
         * `KEY_SECRET_KEY_PAIR` - KEY_SECRET_KEY_PAIR
@@ -8660,6 +8688,7 @@ components:
         * `KEY_FILE_PATH` - KEY_FILE_PATH
         * `ANONYMOUS_ACCESS` - ANONYMOUS_ACCESS
         * `CONNECTION_STRING` - CONNECTION_STRING
+        * `INSTANCE_ROLE` - INSTANCE_ROLE
     DataMetaRead:
       type: object
       properties:
