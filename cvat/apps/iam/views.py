@@ -4,6 +4,7 @@
 # SPDX-License-Identifier: MIT
 
 import functools
+import os
 
 from allauth.account import app_settings as allauth_settings
 from allauth.account.internal.flows.email_verification import send_verification_email_for_user
@@ -19,9 +20,10 @@ from django.http import Http404, HttpResponse, HttpResponseBadRequest, HttpRespo
 from django.views.decorators.http import etag as django_etag
 from drf_spectacular.contrib.rest_auth import get_token_serializer_class
 from drf_spectacular.utils import extend_schema
-from rest_framework import views
+from rest_framework import status, views
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
 
 from cvat.apps.engine.log import ServerLogManager
 
@@ -77,6 +79,39 @@ class LoginViewEx(LoginView):
 
 
 class RegisterViewEx(RegisterView):
+    def create(self, request, *args, **kwargs):
+        """OHZ PATCH (wardan-dev): block self-service signup unless explicitly enabled.
+
+        This deployment is internet-facing so remote annotators can reach it,
+        and upstream ships signup wide open. Verified against a clean v2.77.0
+        stack: POST /api/auth/register with an arbitrary e-mail returned
+        HTTP 201 plus a working API token, and that account then got HTTP 200
+        on /api/tasks, /api/projects and /api/users. Existing tasks stayed
+        invisible (per-object permissions hold), but an unknown party still
+        obtains an authenticated foothold.
+
+        Two upstream defaults compound it: ACCOUNT_EMAIL_VERIFICATION is "none"
+        (settings/base.py), so the address is never proven, and the dj-rest-auth
+        views are deliberately left unthrottled (base.py ~line 218), so login
+        has no brute-force protection.
+
+        NOTE ON THE SEAM: allauth's adapter hook `is_open_for_signup()` is NOT
+        consulted by dj-rest-auth's RegisterView — patching the adapter looks
+        correct but has zero effect on the API (measured: still HTTP 201). The
+        view is the only place that actually gates the REST path.
+
+        Accounts are created by the admin instead. Annotators just open the URL
+        and sign in — nothing changes for them.
+
+        Set CVAT_ALLOW_SIGNUP=true to re-open it (e.g. a private test stack).
+        """
+        if os.getenv("CVAT_ALLOW_SIGNUP", "false").lower() != "true":
+            return Response(
+                {"detail": "Self-registration is disabled. Contact your CVAT administrator."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+        return super().create(request, *args, **kwargs)
+
     def get_response_data(self, user):
         serializer = self.get_serializer(user)
         return serializer.data

@@ -1,0 +1,47 @@
+# =============================================================================
+# OHZ build of cvat/server — official image + our two Python patches
+# =============================================================================
+# WHY A LAYER, NOT A SOURCE BUILD: the upstream Dockerfile is multi-stage and
+# compiles ffmpeg/libav plus a Go binary from scratch — tens of minutes per
+# build for what is a 2-file, ~60-line Python change. Layering onto the
+# published image of the SAME tag gives a byte-identical base with our patches
+# on top, builds in seconds, and keeps upgrades trivial: bump CVAT_VERSION,
+# rebuild, done.
+#
+# THE PATCHES (both server-side Python, so they cannot live in config):
+#   1. cvat/apps/engine/cloud_provider.py — S3 via the EC2 instance role.
+#      Upstream calls disable_signing() whenever no static credentials are
+#      passed, so boto3 never gets to resolve the instance role from IMDS and a
+#      private bucket returns 403 (upstream issue #7735). wardan-dev forbids
+#      static access keys (s3.tf D-A), so without this CVAT cannot read
+#      wardan-dev-ai-datasets at all.
+#   2. cvat/apps/iam/views.py — self-service signup closed by default.
+#      Upstream returns HTTP 201 plus a working API token to anyone who POSTs
+#      /api/auth/register. Measured on a clean v2.77.0 stack. This deployment is
+#      internet-facing for remote annotators, so the door is shut and the admin
+#      creates accounts. CVAT_ALLOW_SIGNUP=true re-opens it.
+#
+# SOURCE PATH: v2.72.0 moved the application source to /opt/cvat while leaving
+# CVAT_BASE_DIR=/home/django for DATA. Verified in the running container:
+# `python -c 'import cvat...'` resolves under /opt/cvat, and a copy to
+# /home/django/cvat fails with "Could not find the file".
+# =============================================================================
+ARG CVAT_VERSION=v2.77.0
+FROM cvat/server:${CVAT_VERSION}
+
+USER root
+COPY cvat/apps/engine/cloud_provider.py /opt/cvat/cvat/apps/engine/cloud_provider.py
+COPY cvat/apps/engine/models.py         /opt/cvat/cvat/apps/engine/models.py
+COPY cvat/apps/engine/serializers.py    /opt/cvat/cvat/apps/engine/serializers.py
+COPY cvat/apps/iam/views.py             /opt/cvat/cvat/apps/iam/views.py
+RUN chown django:django \
+      /opt/cvat/cvat/apps/engine/cloud_provider.py \
+      /opt/cvat/cvat/apps/engine/models.py \
+      /opt/cvat/cvat/apps/engine/serializers.py \
+      /opt/cvat/cvat/apps/iam/views.py \
+ && python3 -m compileall -q \
+      /opt/cvat/cvat/apps/engine/cloud_provider.py \
+      /opt/cvat/cvat/apps/engine/models.py \
+      /opt/cvat/cvat/apps/engine/serializers.py \
+      /opt/cvat/cvat/apps/iam/views.py
+USER django

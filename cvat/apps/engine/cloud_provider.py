@@ -584,6 +584,8 @@ def get_cloud_storage_client(
             endpoint_url=specific_attributes.get("endpoint_url"),
             prefix=specific_attributes.get("prefix"),
             is_trusted=is_trusted,
+            # OHZ PATCH: same expression the GCS branch below already uses.
+            anonymous_access=credentials.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS,
         )
     elif cloud_provider == CloudProviderChoice.AZURE_BLOB_STORAGE:
         instance = AzureBlobCloudStorageClient(
@@ -628,6 +630,7 @@ class S3CloudStorageClient(CloudStorageClient):
         endpoint_url: str | None = None,
         prefix: str | None = None,
         is_trusted: bool = False,
+        anonymous_access: bool = False,
     ):
         super().__init__(prefix=prefix, is_trusted=is_trusted)
         if sum(1 for credential in (access_key_id, secret_key, session_token) if credential) == 1:
@@ -677,8 +680,25 @@ class S3CloudStorageClient(CloudStorageClient):
             ),
         )
 
-        # anonymous access
-        if not any([access_key_id, secret_key, session_token]):
+        # OHZ PATCH (wardan-dev): honour an EXPLICIT anonymous_access flag instead of
+        # inferring anonymity from "no keys were supplied".
+        #
+        # Upstream disabled request signing whenever no static credentials were
+        # passed, which made an EC2 instance role impossible: boto3.Session() would
+        # have resolved the role from IMDS, but signing was switched off first, so
+        # every request went out unsigned and a private bucket returned 403
+        # (see upstream issue #7735, measured on EC2).
+        #
+        # The wardan-dev account forbids static AWS access keys — EC2 reaches S3 via
+        # instance roles only (terraform/environments/wardan-dev/s3.tf D-A). Without
+        # this change CVAT could not read wardan-dev-ai-datasets at all without
+        # breaking that rule.
+        #
+        # This mirrors what the GCS client in this same factory already does: it
+        # takes an explicit `anonymous_access=` argument. S3 was the odd one out.
+        # Behaviour: credentials_type ANONYMOUS_ACCESS -> unsigned (unchanged);
+        # no credentials configured -> signed with the instance role (new).
+        if anonymous_access:
             self._s3.meta.client.meta.events.register("choose-signer.s3.*", disable_signing)
             self._status_client.meta.events.register("choose-signer.s3.*", disable_signing)
 
@@ -1250,6 +1270,8 @@ class Credentials:
                 "" if not self.account_name else self.account_name
             ),
             CredentialsTypeChoice.CONNECTION_STRING: self.connection_string,
+            # OHZ PATCH: nothing is stored — the identity lives on the instance.
+            CredentialsTypeChoice.INSTANCE_ROLE: "",
         }
         return converted_credentials[self.credentials_type]
 
@@ -1269,6 +1291,10 @@ class Credentials:
             instance.key_file_path = value
         elif instance.credentials_type == CredentialsTypeChoice.CONNECTION_STRING:
             instance.connection_string = value
+        elif instance.credentials_type == CredentialsTypeChoice.INSTANCE_ROLE:
+            # OHZ PATCH: no stored secret to rehydrate; boto3 resolves the
+            # instance role from IMDS at call time.
+            pass
         else:
             raise NotImplementedError(
                 "Found {} not supported credentials type".format(instance.credentials_type)
@@ -1282,7 +1308,11 @@ class Credentials:
 
     def mapping_with_new_values(self, credentials):
         self.credentials_type = credentials.get("credentials_type", self.credentials_type)
-        if self.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS:
+        if self.credentials_type == CredentialsTypeChoice.INSTANCE_ROLE:
+            # OHZ PATCH: clear every stored field — the point is that no secret
+            # is held anywhere in CVAT for this storage.
+            self.reset(exclusion=set())
+        elif self.credentials_type == CredentialsTypeChoice.ANONYMOUS_ACCESS:
             self.reset(exclusion={"account_name"})
             self.account_name = credentials.get("account_name", self.account_name)
         elif self.credentials_type == CredentialsTypeChoice.KEY_SECRET_KEY_PAIR:

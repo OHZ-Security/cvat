@@ -1,0 +1,74 @@
+# OHZ YOLO26s detector (R45_T3_Fe2Ge7), exported from Ultralytics 8.4.136 as
+# an end2end ONNX: input [1,3,640,640], output [1,300,6] = x1,y1,x2,y2,score,class
+# in letterboxed 640px coordinates, already NMS-free. Label ids below MUST match
+# the `names` entry in the model's ONNX metadata.
+#
+# The weights are NOT in this repo: the repo is public and the model is private.
+# They are copied into this folder as `model.onnx` from the private S3 URI held
+# in SSM /wardan-dev/cvat/YOLO26S_MODEL_S3_URI before deploy_cpu.sh runs (see
+# .github/workflows/master.yml); Nuclio then copies the folder into the image.
+# Currently R45_T3_Fe2Ge7.onnx.
+metadata:
+  name: onnx-ohz-yolo26s
+  namespace: cvat
+  annotations:
+    name: OHZ YOLO26s
+    type: detector
+    spec: |
+      [
+        { "id": 0, "name": "person", "type": "rectangle" },
+        { "id": 1, "name": "car", "type": "rectangle" },
+        { "id": 2, "name": "motorcycle", "type": "rectangle" },
+        { "id": 3, "name": "bus", "type": "rectangle" },
+        { "id": 4, "name": "truck", "type": "rectangle" },
+        { "id": 5, "name": "animal", "type": "rectangle" },
+        { "id": 6, "name": "package", "type": "rectangle" },
+        { "id": 7, "name": "gun", "type": "rectangle" },
+        { "id": 8, "name": "knife", "type": "rectangle" },
+        { "id": 9, "name": "ambulance", "type": "rectangle" },
+        { "id": 10, "name": "police_car", "type": "rectangle" },
+        { "id": 11, "name": "fire_truck", "type": "rectangle" },
+        { "id": 12, "name": "fire", "type": "rectangle" },
+        { "id": 13, "name": "smoke", "type": "rectangle" },
+        { "id": 14, "name": "anpr", "type": "rectangle" }
+      ]
+
+spec:
+  description: OHZ YOLO26s (R45_T3_Fe2Ge7) via onnx
+  runtime: 'python:3.10'
+  handler: main:handler
+  eventTimeout: 30s
+  # Measured locally 2026-10-07, real nuctl 1.16.3 build pinned to 2 CPUs:
+  # 307Mi idle, 624Mi peak with 3 parallel clients on 640px-1920x1080 frames.
+  # 1536Mi = ~2.5x that, room for larger frames. Upstream functions set none,
+  # which leaves the container unbounded on an 8 GiB box.
+  resources:
+    limits:
+      memory: 1536Mi
+  build:
+    image: cvat.onnx.ohz.yolo26s
+    baseImage: ubuntu:22.04
+
+    directives:
+      preCopy:
+        - kind: RUN
+          value: apt-get update && apt-get install --no-install-recommends -y python3-pip python-is-python3 && rm -rf /var/lib/apt/lists/*
+        - kind: RUN
+          value: pip install onnxruntime opencv-python-headless pillow pyyaml --no-cache-dir
+        - kind: WORKDIR
+          value: /opt/nuclio
+
+  triggers:
+    myHttpTrigger:
+      numWorkers: 2
+      kind: 'http'
+      workerAvailabilityTimeoutMilliseconds: 10000
+      attributes:
+        maxRequestBodySize: 33554432 # 32MB
+
+  platform:
+    attributes:
+      restartPolicy:
+        name: always
+        maximumRetryCount: 3
+      mountMode: volume

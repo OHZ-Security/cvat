@@ -1,0 +1,2 @@
+# Model weights are private: copied in from S3 before deploy, never committed
+*.onnx

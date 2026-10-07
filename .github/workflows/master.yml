@@ -1,0 +1,132 @@
+# =============================================================================
+# OHZ: deploy auto-annotation functions to CVAT (wardan-dev) — over SSM, no SSH
+# =============================================================================
+# Not an upstream workflow. Triggers on push to `master` (the OHZ deploy branch
+# of this fork) when the OHZ function code changes, or by hand. Auth is keyless
+# GitHub OIDC -> wardan-dev-github-actions, which trusts this repo on `master` only
+# (infra terraform/environments/org/variables.tf, dev_github_repositories).
+#
+# This fork is PUBLIC and the model is private, so the weights are never in the
+# repo: the box reads their S3 URI from SSM and copies them in with its own
+# instance role, same "SSM path per server" pattern as mediamtx/speaker.
+# =============================================================================
+
+name: Deploy → wardan-dev
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "serverless/onnx/ohz/**"
+      - ".github/workflows/master.yml"
+  workflow_dispatch:
+
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: ohz-deploy-cvat
+  cancel-in-progress: false
+
+jobs:
+  deploy-wardan-dev:
+    name: Deploy CVAT functions (wardan-dev, via SSM)
+    runs-on: ubuntu-latest
+    env:
+      AWS_REGION: us-east-1
+      INSTANCE_NAME_TAG: wardan-dev-cvat
+    steps:
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: arn:aws:iam::632853425601:role/wardan-dev-github-actions
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Resolve target instance id
+        id: target
+        run: |
+          IID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=${INSTANCE_NAME_TAG}" \
+                      "Name=instance-state-name,Values=running" \
+            --query 'Reservations[].Instances[].InstanceId' --output text)
+          if [ -z "$IID" ] || [ "$IID" = "None" ]; then
+            echo "::error::No running instance tagged Name=${INSTANCE_NAME_TAG}"; exit 1
+          fi
+          echo "instance_id=$IID" >> "$GITHUB_OUTPUT"
+          echo "Target: $IID"
+
+      - name: Deploy via SSM
+        run: |
+          set -euo pipefail
+          IID="${{ steps.target.outputs.instance_id }}"
+
+          # Runs on the box as root. Written to a file and JSON-encoded with jq
+          # so no line needs shell-in-JSON quoting.
+          cat > deploy.sh <<'SCRIPT'
+          set -euo pipefail
+          SHA="__SHA__"
+          REGION="us-east-1"
+          FN="serverless/onnx/ohz/yolo26s"
+          cd /opt/cvat-app
+
+          git fetch --depth 1 origin master
+          if [ "$(git rev-parse FETCH_HEAD)" != "$SHA" ]; then
+            echo "master moved past $SHA; the newer run deploys it"; exit 1
+          fi
+          # The running stack was brought up from this checkout's compose files.
+          # A deploy that changes them needs a planned rollout, not this job.
+          if ! git diff --quiet HEAD FETCH_HEAD -- 'docker-compose*.yml' components/; then
+            echo "compose files differ from the running stack; refusing"; exit 1
+          fi
+          git checkout -f FETCH_HEAD
+
+          # Private weights: S3 URI from SSM, fetched with the instance role.
+          URI=$(aws ssm get-parameter --name /wardan-dev/cvat/YOLO26S_MODEL_S3_URI \
+            --region "$REGION" --query Parameter.Value --output text)
+          aws s3 cp --only-show-errors --region "$REGION" "$URI" "$FN/nuclio/model.onnx"
+
+          ./serverless/deploy_cpu.sh "$FN"
+
+          # Replaced by onnx-ohz-yolo26s on 2026-10-07. No-op once it is gone.
+          nuctl delete function onnx-wongkinyiu-yolov7 --platform local 2>/dev/null || true
+
+          nuctl get function --platform local
+          nuctl get function onnx-ohz-yolo26s --platform local | grep -q ' ready '
+          echo "DEPLOY_OK $SHA"
+          SCRIPT
+          sed -i "s/__SHA__/${GITHUB_SHA}/" deploy.sh
+
+          CID=$(aws ssm send-command \
+            --instance-ids "$IID" \
+            --document-name "AWS-RunShellScript" \
+            --comment "deploy cvat functions ${GITHUB_SHA}" \
+            --timeout-seconds 1800 \
+            --parameters "$(jq -n --rawfile s deploy.sh '{commands: [$s]}')" \
+            --query 'Command.CommandId' --output text)
+          echo "SSM command: $CID"
+
+          # Function images are BUILT on the box (pip install), so allow 25 min.
+          for i in $(seq 1 150); do
+            STATUS=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+              --query 'Status' --output text 2>/dev/null || echo "Pending")
+            echo "[$i] status=$STATUS"
+            case "$STATUS" in
+              Success|Failed|Cancelled|TimedOut) break ;;
+            esac
+            sleep 10
+          done
+
+          echo "===== stdout ====="
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query 'StandardOutputContent' --output text || true
+          echo "===== stderr ====="
+          aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query 'StandardErrorContent' --output text || true
+
+          FINAL=$(aws ssm get-command-invocation --command-id "$CID" --instance-id "$IID" \
+            --query 'Status' --output text)
+          if [ "$FINAL" != "Success" ]; then
+            echo "::error::SSM deploy ended in status=$FINAL"; exit 1
+          fi
+          echo "✅ CVAT functions deployed (${GITHUB_SHA})"
