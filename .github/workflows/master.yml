@@ -1,9 +1,9 @@
 # =============================================================================
 # OHZ: deploy auto-annotation functions to CVAT (wardan-dev) — over SSM, no SSH
 # =============================================================================
-# Not an upstream workflow. Triggers on push to `dev` (the OHZ deploy branch of
-# this fork) when the OHZ function code changes, or by hand. Auth is keyless
-# GitHub OIDC -> wardan-dev-github-actions, which trusts this repo on `dev` only
+# Not an upstream workflow. Triggers on push to `master` (the OHZ deploy branch
+# of this fork) when the OHZ function code changes, or by hand. Auth is keyless
+# GitHub OIDC -> wardan-dev-github-actions, which trusts this repo on `master` only
 # (infra terraform/environments/org/variables.tf, dev_github_repositories).
 #
 # This fork is PUBLIC and the model is private, so the weights are never in the
@@ -15,10 +15,10 @@ name: Deploy → wardan-dev
 
 on:
   push:
-    branches: [dev]
+    branches: [master]
     paths:
       - "serverless/onnx/ohz/**"
-      - ".github/workflows/dev.yml"
+      - ".github/workflows/master.yml"
   workflow_dispatch:
 
 permissions:
@@ -70,9 +70,9 @@ jobs:
           FN="serverless/onnx/ohz/yolo26s"
           cd /opt/cvat-app
 
-          git fetch --depth 1 origin dev
+          git fetch --depth 1 origin master
           if [ "$(git rev-parse FETCH_HEAD)" != "$SHA" ]; then
-            echo "dev moved past $SHA; the newer run deploys it"; exit 1
+            echo "master moved past $SHA; the newer run deploys it"; exit 1
           fi
           # The running stack was brought up from this checkout's compose files.
           # A deploy that changes them needs a planned rollout, not this job.

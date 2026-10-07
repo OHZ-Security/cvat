@@ -6,7 +6,7 @@
 # The weights are NOT in this repo: the repo is public and the model is private.
 # They are copied into this folder as `model.onnx` from the private S3 URI held
 # in SSM /wardan-dev/cvat/YOLO26S_MODEL_S3_URI before deploy_cpu.sh runs (see
-# .github/workflows/dev.yml); Nuclio then copies the folder into the image.
+# .github/workflows/master.yml); Nuclio then copies the folder into the image.
 # Currently R45_T3_Fe2Ge7.onnx.
 metadata:
   name: onnx-ohz-yolo26s
