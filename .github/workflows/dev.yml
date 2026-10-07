@@ -11,14 +11,14 @@
 # instance role, same "SSM path per server" pattern as mediamtx/speaker.
 # =============================================================================
 
-name: OHZ Deploy → CVAT functions
+name: Deploy → wardan-dev
 
 on:
   push:
     branches: [dev]
     paths:
       - "serverless/onnx/ohz/**"
-      - ".github/workflows/ohz-deploy.yml"
+      - ".github/workflows/dev.yml"
   workflow_dispatch:
 
 permissions:
