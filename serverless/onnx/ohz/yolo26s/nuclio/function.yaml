@@ -38,6 +38,13 @@ spec:
   runtime: 'python:3.10'
   handler: main:handler
   eventTimeout: 30s
+  # Measured locally 2026-10-07, real nuctl 1.16.3 build pinned to 2 CPUs:
+  # 307Mi idle, 624Mi peak with 3 parallel clients on 640px-1920x1080 frames.
+  # 1536Mi = ~2.5x that, room for larger frames. Upstream functions set none,
+  # which leaves the container unbounded on an 8 GiB box.
+  resources:
+    limits:
+      memory: 1536Mi
   build:
     image: cvat.onnx.ohz.yolo26s
     baseImage: ubuntu:22.04
